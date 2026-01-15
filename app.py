@@ -22,7 +22,7 @@ class Config:
     )
     
     CACHE_TTL = 600  # 缓存10分钟
-    LOOKBACK_YEARS = 5  # 数据回溯年限
+    LOOKBACK_YEARS = 7  # 数据回溯年限（从2018年1月1日至今约7年）
     
 
     
@@ -141,8 +141,8 @@ class DataFetcher:
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df.dropna(subset=['date'], inplace=True)
         
-        # 过滤时间范围
-        cutoff_date = pd.Timestamp.now() - pd.DateOffset(years=Config.LOOKBACK_YEARS)
+        # 过滤时间范围 - 从2018年1月1日开始
+        cutoff_date = pd.Timestamp('2018-01-01')
         df = df[df['date'] >= cutoff_date]
         
         # 确保必需的列存在并转换数值类型
@@ -177,7 +177,7 @@ class DataFetcher:
         """通过Tushare获取中概互联数据"""
         try:
             end_date = pd.Timestamp.now().strftime('%Y%m%d')
-            start_date = (pd.Timestamp.now() - pd.DateOffset(years=Config.LOOKBACK_YEARS)).strftime('%Y%m%d')
+            start_date = '20180101'  # 固定从2018年1月1日开始
             
             df = pro.index_daily(ts_code='H30533.CSI', start_date=start_date, end_date=end_date)
             
@@ -400,7 +400,7 @@ class UIComponents:
                     <div style="flex-grow:1; background:linear-gradient(90deg, #ffdce0, #ffb3ba);"></div>
                 </div>
                 
-                <!-- 5年最低 -->
+                <!-- 最低点位 -->
                 <div style="position:absolute; left:0%; top:{45+labels[0]['offset']}px; height:35px; border-left:2px dashed #666;"></div>
                 <div style="position:absolute; left:0%; top:{85+labels[0]['offset']}px; transform:translateX(-50%); text-align:center; font-size:{int(10*font_scale)}px; color:#555; width:{int(90*font_scale)}px; line-height:1.3; background:rgba(255,255,255,0.95); padding:3px; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
                     <b style="font-size:{int(11*font_scale)}px;">{lv:.0f}</b><br>
@@ -421,7 +421,7 @@ class UIComponents:
                     <span style="font-size:{int(9*font_scale)}px;">大气层</span>
                 </div>
                 
-                <!-- 5年最高 -->
+                <!-- 最高点位 -->
                 <div style="position:absolute; left:{high_pct:.1f}%; top:{45+labels[3]['offset']}px; height:35px; border-left:2px dashed #666;"></div>
                 <div style="position:absolute; left:{high_pct:.1f}%; top:{85+labels[3]['offset']}px; transform:translateX(-50%); text-align:center; font-size:{int(10*font_scale)}px; color:#555; width:{int(90*font_scale)}px; line-height:1.3; background:rgba(255,255,255,0.95); padding:3px; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
                     <b style="font-size:{int(11*font_scale)}px;">{hv:.0f}</b><br>
@@ -480,12 +480,72 @@ TUSHARE_TOKEN = "你的token"
             
             st.divider()
             
+            # 数据导入导出功能
+            with st.expander("📥📤 数据备份与恢复"):
+                st.caption("💡 定期备份数据，避免丢失")
+                
+                # 导出数据
+                st.markdown("**📤 导出数据**")
+                export_data = json.dumps(st.session_state.db, ensure_ascii=False, indent=2)
+                st.download_button(
+                    label="💾 下载备份文件",
+                    data=export_data,
+                    file_name=f"stock_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+                
+                st.divider()
+                
+                # 导入数据
+                st.markdown("**📥 导入数据**")
+                uploaded_file = st.file_uploader(
+                    "选择备份文件", 
+                    type=['json'],
+                    help="上传之前导出的 JSON 备份文件",
+                    label_visibility="collapsed"
+                )
+                
+                if uploaded_file is not None:
+                    try:
+                        imported_data = json.loads(uploaded_file.getvalue().decode('utf-8'))
+                        
+                        # 显示预览
+                        st.success(f"✅ 文件读取成功")
+                        
+                        # 统计信息
+                        supports_count = len(imported_data.get('supports', {}))
+                        notes_count = sum(len(notes) for notes in imported_data.get('notes', {}).values())
+                        
+                        st.info(f"""
+**数据预览：**
+- 指数配置：{supports_count} 个
+- 策略日志：{notes_count} 条
+                        """)
+                        
+                        # 确认导入
+                        col1, col2 = st.columns(2)
+                        if col1.button("✅ 确认导入", use_container_width=True):
+                            st.session_state.db = imported_data
+                            DataManager.save(st.session_state.db)
+                            st.success("🎉 数据导入成功！")
+                            st.balloons()
+                            st.rerun()
+                        
+                        if col2.button("❌ 取消", use_container_width=True):
+                            st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"❌ 文件格式错误: {str(e)}")
+            
+            st.divider()
+            
             # 操作按钮
             if st.button("🔄 强制刷新数据", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
             
-            if st.button("💾 手动备份数据", use_container_width=True):
+            if st.button("💾 手动保存数据", use_container_width=True):
                 DataManager.save(st.session_state.db)
                 st.success("磁盘写入成功!")
             
